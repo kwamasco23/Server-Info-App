@@ -16,7 +16,7 @@ pipeline {
             steps {
 
                 git branch: 'main',
-                url: 'https://github.com/kwamasco/server-info-app.git'
+                url: 'https://github.com/kwamasco23/Server-Info-App.git'
 
             }
 
