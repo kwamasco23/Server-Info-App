@@ -1,10 +1,18 @@
-from flask import Flask, request, jsonify
+from prometheus_client import Counter, generate_latest, CONTENT_TYPE_LATEST
+from flask import Response, Flask, request, jsonify
 import socket
 import datetime
 import os
 import platform
 
 app = Flask(__name__)
+
+# ✅ PROMETHEUS METRIC
+REQUEST_COUNT = Counter(
+    'app_requests_total',
+    'Total number of requests',
+    ['method', 'endpoint']
+)
 
 VERSION = os.getenv("VERSION", "1.0")
 ENVIRONMENT = os.getenv("ENVIRONMENT", "DEV")
@@ -26,6 +34,17 @@ IP: {request.remote_addr}
 """)
 
 
+# 🔹 PROMETHEUS REQUEST COUNTER
+@app.before_request
+def track_requests():
+
+    REQUEST_COUNT.labels(
+        request.method,
+        request.path
+    ).inc()
+
+
+# 🔹 MAIN PAGE
 @app.route("/", methods=["GET", "POST"])
 def home():
 
@@ -36,7 +55,6 @@ def home():
         name = request.form.get("name")
         message = request.form.get("message")
 
-        # 🔹 LOG POST DATA
         print(f"""
 [{datetime.datetime.now()}] POST DATA RECEIVED
 Name: {name}
@@ -78,6 +96,7 @@ Served by: {hostname}
     """
 
 
+# 🔹 HEALTH CHECK
 @app.route("/health")
 def health():
 
@@ -88,16 +107,33 @@ def health():
     }
 
 
+# 🔹 API ENDPOINT
 @app.route("/api/info")
 def api_info():
 
     print(f"[{datetime.datetime.now()}] API info endpoint called")
 
     return jsonify({
-        "hostname": hostname
+        "hostname": hostname,
+        "environment": ENVIRONMENT,
+        "version": VERSION
     })
 
 
+# 🔹 PROMETHEUS METRICS ENDPOINT
+@app.route("/metrics")
+def metrics():
+
+    return Response(
+        generate_latest(),
+        mimetype=CONTENT_TYPE_LATEST
+    )
+
+
+# 🔹 START APP
 if __name__ == "__main__":
 
-    app.run(host="0.0.0.0", port=5002)
+    app.run(
+        host="0.0.0.0",
+        port=5002
+    )
