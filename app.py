@@ -1,17 +1,25 @@
-from prometheus_client import Counter, generate_latest, CONTENT_TYPE_LATEST
+from prometheus_client import Counter, Histogram, generate_latest, CONTENT_TYPE_LATEST
 from flask import Response, Flask, request, jsonify
 import socket
 import datetime
 import os
 import platform
+import time
+import psutil
 
 app = Flask(__name__)
 
-# ✅ PROMETHEUS METRIC
+# ✅ PROMETHEUS METRICS
 REQUEST_COUNT = Counter(
     'app_requests_total',
     'Total number of requests',
     ['method', 'endpoint']
+)
+
+REQUEST_LATENCY = Histogram(
+    'app_request_latency_seconds',
+    'Request latency in seconds',
+    ['endpoint']
 )
 
 VERSION = os.getenv("VERSION", "1.0")
@@ -21,10 +29,13 @@ BUILD_NUMBER = os.getenv("BUILD_NUMBER", "local")
 hostname = socket.gethostname()
 ip_address = socket.gethostbyname(hostname)
 
+start_time = time.time()
 
-# 🔹 LOG EVERY REQUEST
+
+# 🔹 LOG + TRACK REQUESTS
 @app.before_request
-def log_request():
+def before_request():
+    request.start_time = time.time()
 
     print(f"""
 [{datetime.datetime.now()}] REQUEST RECEIVED
@@ -34,14 +45,17 @@ IP: {request.remote_addr}
 """)
 
 
-# 🔹 PROMETHEUS REQUEST COUNTER
-@app.before_request
-def track_requests():
-
+@app.after_request
+def after_request(response):
     REQUEST_COUNT.labels(
         request.method,
         request.path
     ).inc()
+
+    latency = time.time() - request.start_time
+    REQUEST_LATENCY.labels(request.path).observe(latency)
+
+    return response
 
 
 # 🔹 MAIN PAGE
@@ -55,13 +69,6 @@ def home():
         name = request.form.get("name")
         message = request.form.get("message")
 
-        print(f"""
-[{datetime.datetime.now()}] POST DATA RECEIVED
-Name: {name}
-Message: {message}
-Served by: {hostname}
-""")
-
         response_message = f"""
         <h3>Response from server:</h3>
         Hello <b>{name}</b><br>
@@ -70,17 +77,29 @@ Served by: {hostname}
         Time: {datetime.datetime.now()}
         """
 
-    return f"""
-    <h1>Interactive Server Info App</h1>
+    uptime_seconds = int(time.time() - start_time)
 
-    Version: {VERSION}<br>
-    Environment: {ENVIRONMENT}<br>
-    Hostname: {hostname}<br>
+    return f"""
+    <h1>🚀 Interactive Server Info App</h1>
+
+    <b>Version:</b> {VERSION}<br>
+    <b>Environment:</b> {ENVIRONMENT}<br>
+    <b>Build:</b> {BUILD_NUMBER}<br>
+    <b>Hostname:</b> {hostname}<br>
+    <b>IP Address:</b> {ip_address}<br>
+    <b>Uptime:</b> {uptime_seconds} seconds<br>
 
     <hr>
 
-    <form method="post">
+    <h2>🖥 System Info</h2>
+    CPU Usage: {psutil.cpu_percent()}%<br>
+    Memory Usage: {psutil.virtual_memory().percent}%<br>
+    Platform: {platform.system()} {platform.release()}<br>
 
+    <hr>
+
+    <h2>💬 Send a Message</h2>
+    <form method="post">
         Name:<br>
         <input type="text" name="name"><br><br>
 
@@ -88,42 +107,36 @@ Served by: {hostname}
         <input type="text" name="message"><br><br>
 
         <input type="submit" value="Send">
-
     </form>
 
     {response_message}
-
     """
 
 
 # 🔹 HEALTH CHECK
 @app.route("/health")
 def health():
-
-    print(f"[{datetime.datetime.now()}] Health check called")
-
     return {
-        "status": "OK"
+        "status": "OK",
+        "uptime_seconds": int(time.time() - start_time)
     }
 
 
 # 🔹 API ENDPOINT
 @app.route("/api/info")
 def api_info():
-
-    print(f"[{datetime.datetime.now()}] API info endpoint called")
-
     return jsonify({
         "hostname": hostname,
         "environment": ENVIRONMENT,
-        "version": VERSION
+        "version": VERSION,
+        "cpu_usage": psutil.cpu_percent(),
+        "memory_usage": psutil.virtual_memory().percent
     })
 
 
-# 🔹 PROMETHEUS METRICS ENDPOINT
+# 🔹 PROMETHEUS METRICS
 @app.route("/metrics")
 def metrics():
-
     return Response(
         generate_latest(),
         mimetype=CONTENT_TYPE_LATEST
@@ -132,7 +145,6 @@ def metrics():
 
 # 🔹 START APP
 if __name__ == "__main__":
-
     app.run(
         host="0.0.0.0",
         port=5002
