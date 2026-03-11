@@ -80,7 +80,7 @@ def home():
     uptime_seconds = int(time.time() - start_time)
 
     return f"""
-    <h1>🚀 Interactive Server Info App</h1>
+    <h1> Interactive Server Info App</h1>
 
     <b>Version:</b> {VERSION}<br>
     <b>Environment:</b> {ENVIRONMENT}<br>
